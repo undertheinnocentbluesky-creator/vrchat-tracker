@@ -1,0 +1,62 @@
+name: VRChat Login Notifier
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"  # 30分ごとに実行（5分にしたい場合は */5）
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run tracker
+        env:
+          VRCHAT_USERNAME: ${{ secrets.VRCHAT_USERNAME }}
+          VRCHAT_PASSWORD: ${{ secrets.VRCHAT_PASSWORD }}
+          VRCHAT_KEY: ${{ secrets.VRCHAT_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          VRCHAT_USER_IDS: ${{ secrets.VRCHAT_USER_IDS }}
+        run: |
+          python <<'PYCODE'
+          import requests, os
+
+          username = os.getenv("VRCHAT_USERNAME")
+          password = os.getenv("VRCHAT_PASSWORD")
+          key = os.getenv("VRCHAT_KEY")
+          webhook = os.getenv("DISCORD_WEBHOOK_URL")
+          user_ids = os.getenv("VRCHAT_USER_IDS").split(",")
+
+          print("🔐 Logging in to VRChat...")
+          auth = requests.post(
+              "https://api.vrchat.cloud/api/1/auth/user",
+              data={"username": username, "password": password}
+          ).cookies
+
+          for uid in user_ids:
+              uid = uid.strip()
+              if not uid:
+                  continue
+              res = requests.get(f"https://api.vrchat.cloud/api/1/users/{uid}", cookies=auth)
+              if res.status_code != 200:
+                  print(f"❌ Failed to get user info for {uid}")
+                  continue
+              data = res.json()
+              name = data.get("displayName", "Unknown")
+              status = data.get("status", "offline")
+              print(f"👀 {name} is {status}")
+
+              if status == "active":
+                  msg = f"🎉 {name} さんがVRChatにログインしました！"
+                  requests.post(webhook, json={"content": msg})
+          PYCODE
